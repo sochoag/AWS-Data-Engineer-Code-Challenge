@@ -77,7 +77,7 @@ ok "Authenticated as: ${CALLER}"
 
 # Verify battery14_df.csv is present
 if [[ ! -f "data/battery14_df.csv" ]]; then
-    die "data/battery14_df.csv not found.\nPlace the file in ${SCRIPT_DIR}/data/ and re-run."
+    die "data/battery14_df.csv not found in ${SCRIPT_DIR}/data/\nDid you clone the full repo?"
 fi
 ok "data/battery14_df.csv found"
 

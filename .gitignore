@@ -14,9 +14,6 @@ build/
 .venv/
 venv/
 
-# Sensitive raw data — never commit to repo
-data/battery14_df.csv
-
 # Credentials — NEVER commit
 .env
 *.env

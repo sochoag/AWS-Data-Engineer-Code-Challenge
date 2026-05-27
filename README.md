@@ -37,14 +37,11 @@ CloudWatch Alarm → SNS → Email  (fires on any execution failure)
 ## Quick Start — one command
 
 ```bash
-# 1. Place the raw dataset (not included in the repo for privacy)
-cp /path/to/battery14_df.csv data/
-
-# 2. Set up AWS credentials
+# 1. Set up AWS credentials
 aws configure --profile sam-deployer
 # Enter: Access Key ID, Secret Access Key, region: us-east-1, output: json
 
-# 3. Run everything
+# 2. Run everything
 chmod +x run.sh
 ./run.sh
 ```
@@ -253,7 +250,7 @@ Empties the S3 bucket (objects + versions) then deletes the entire CloudFormatio
 ```
 so_code_challenge/
 ├── data/
-│   ├── battery14_df.csv           # Raw dataset (NOT in repo — add manually)
+│   ├── battery14_df.csv           # Raw psychometric dataset (47,645 rows)
 │   └── degrees.csv                # Education level reference table
 ├── glue/
 │   ├── glue_transform.py          # Glue Job #1: filter, join, DQ checks, write Parquet
