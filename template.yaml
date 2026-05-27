@@ -1,0 +1,328 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Data Engineer Code Challenge - ETL Pipeline
+  EventBridge → Lambda → Step Functions → Glue (Transform + Iceberg) → S3/Athena
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Parameters
+# ──────────────────────────────────────────────────────────────────────────────
+Parameters:
+  AlertEmail:
+    Type: String
+    Description: "Email address that receives pipeline failure alerts via SNS"
+    Default: "your@email.com"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Globals: shared configuration for all Lambda functions
+# ──────────────────────────────────────────────────────────────────────────────
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 60
+    MemorySize: 256
+    Environment:
+      Variables:
+        STATE_MACHINE_ARN: !Ref EtlStateMachine
+        DATA_BUCKET: !Ref DataBucket
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Resources
+# ──────────────────────────────────────────────────────────────────────────────
+Resources:
+
+  # ── S3 Bucket (single bucket with logical prefixes) ───────────────────────
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "cc-data-engineer-${AWS::AccountId}-${AWS::Region}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Project
+          Value: cc-data-engineer
+
+  # ── Glue Database (Iceberg catalog) ───────────────────────────────────────
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: cc_data_engineer_db
+        Description: "Database for Data Engineer Code Challenge - Iceberg tables"
+
+  # ── IAM Role for Glue Jobs ────────────────────────────────────────────────
+  GlueJobRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: cc-de-glue-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: cc-de-glue-s3-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt DataBucket.Arn
+                  - !Sub "${DataBucket.Arn}/*"
+        - PolicyName: cc-de-glue-catalog-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - glue:GetDatabase
+                  - glue:GetTable
+                  - glue:CreateTable
+                  - glue:UpdateTable
+                  - glue:DeleteTable
+                  - glue:GetPartition
+                  - glue:CreatePartition
+                  - glue:UpdatePartition
+                  - glue:BatchCreatePartition
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "arn:aws:logs:*:*:/aws-glue/*"
+
+  # ── IAM Role for Step Functions ───────────────────────────────────────────
+  StepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: cc-de-stepfunctions-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: cc-de-stepfunctions-glue-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - glue:StartJobRun
+                  - glue:GetJobRun
+                  - glue:GetJobRuns
+                  - glue:BatchStopJobRun
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogDelivery
+                  - logs:GetLogDelivery
+                  - logs:UpdateLogDelivery
+                  - logs:DeleteLogDelivery
+                  - logs:ListLogDeliveries
+                  - logs:PutResourcePolicy
+                  - logs:DescribeResourcePolicies
+                  - logs:DescribeLogGroups
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                  - xray:GetSamplingRules
+                  - xray:GetSamplingTargets
+                Resource: "*"
+
+  # ── Glue Job #1: Transform (CSV → filtered Parquet) ──────────────────────
+  GlueTransformJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: cc-de-glue-transform
+      Description: "Reads battery14_df.csv, applies filters, joins with degrees, writes Parquet to curated/"
+      Role: !GetAtt GlueJobRole.Arn
+      GlueVersion: "4.0"
+      Command:
+        Name: glueetl
+        PythonVersion: "3"
+        ScriptLocation: !Sub "s3://${DataBucket}/scripts/glue_transform.py"
+      DefaultArguments:
+        "--job-language": "python"
+        "--job-bookmark-option": "job-bookmark-disable"
+        "--enable-metrics": "true"
+        "--enable-continuous-cloudwatch-log": "true"
+        "--TempDir": !Sub "s3://${DataBucket}/tmp/"
+        "--RAW_BUCKET": !Ref DataBucket
+        "--RAW_KEY": "raw/battery14_df.csv"
+        "--DEGREES_KEY": "raw/degrees.csv"
+        "--CURATED_PREFIX": "curated"
+        "--EXECUTION_DATE": "2026-01-01"
+      WorkerType: G.1X
+      NumberOfWorkers: 2
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      Tags:
+        Project: cc-data-engineer
+
+  # ── Glue Job #2: Iceberg Writer ───────────────────────────────────────────
+  GlueIcebergJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: cc-de-glue-iceberg
+      Description: "Reads Parquet from curated/, creates/updates Iceberg table in Glue Catalog"
+      Role: !GetAtt GlueJobRole.Arn
+      GlueVersion: "4.0"
+      Command:
+        Name: glueetl
+        PythonVersion: "3"
+        ScriptLocation: !Sub "s3://${DataBucket}/scripts/glue_iceberg.py"
+      DefaultArguments:
+        "--job-language": "python"
+        "--job-bookmark-option": "job-bookmark-disable"
+        "--enable-metrics": "true"
+        "--enable-continuous-cloudwatch-log": "true"
+        "--datalake-formats": "iceberg"
+        "--TempDir": !Sub "s3://${DataBucket}/tmp/"
+        "--DATA_BUCKET": !Ref DataBucket
+        "--CURATED_PREFIX": "curated"
+        "--ICEBERG_PREFIX": "iceberg"
+        "--DATABASE_NAME": "cc_data_engineer_db"
+        "--TABLE_NAME": "battery_filtered"
+        "--EXECUTION_DATE": "2026-01-01"
+      WorkerType: G.1X
+      NumberOfWorkers: 2
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      Tags:
+        Project: cc-data-engineer
+
+  # ── Step Functions State Machine ──────────────────────────────────────────
+  EtlStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: cc-de-etl-orchestrator
+      DefinitionUri: statemachine/etl_orchestrator.asl.json
+      DefinitionSubstitutions:
+        GlueTransformJobName: !Ref GlueTransformJob
+        GlueIcebergJobName: !Ref GlueIcebergJob
+      Role: !GetAtt StepFunctionsRole.Arn
+      Tags:
+        Project: cc-data-engineer
+
+  # ── Lambda Function (starter) ─────────────────────────────────────────────
+  StartStateMachineFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: cc-de-start-state-machine
+      CodeUri: lambda/start_state_machine/
+      Handler: app.lambda_handler
+      Description: "Triggered by EventBridge. Builds the input parameters and starts the ETL Step Function."
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+              Resource: !Ref EtlStateMachine
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: "arn:aws:logs:*:*:*"
+      Events:
+        DailySchedule:
+          Type: Schedule
+          Properties:
+            Schedule: "cron(0 12 * * ? *)"
+            Name: cc-de-daily-trigger
+            Description: "Triggers the ETL pipeline daily at 12:00 UTC"
+            Enabled: true
+      Tags:
+        Project: cc-data-engineer
+
+  # ── SNS Topic (pipeline failure alerts) ──────────────────────────────────
+  PipelineAlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: cc-de-pipeline-alerts
+      DisplayName: "ETL Pipeline Alerts"
+      Tags:
+        - Key: Project
+          Value: cc-data-engineer
+
+  PipelineAlertSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref PipelineAlertTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # ── CloudWatch Alarm: Step Function execution failures ────────────────────
+  EtlPipelineFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: cc-de-etl-pipeline-failure
+      AlarmDescription: >
+        Fires when one or more ETL Step Function executions fail.
+        Check the Step Functions console and Glue job logs for the root cause.
+      Namespace: AWS/States
+      MetricName: ExecutionsFailed
+      Dimensions:
+        - Name: StateMachineArn
+          Value: !Ref EtlStateMachine
+      Statistic: Sum
+      Period: 300           # 5-minute evaluation window
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref PipelineAlertTopic
+      OKActions:
+        - !Ref PipelineAlertTopic
+      Tags:
+        - Key: Project
+          Value: cc-data-engineer
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Outputs: useful values to query after deployment
+# ──────────────────────────────────────────────────────────────────────────────
+Outputs:
+  DataBucketName:
+    Description: "Main S3 bucket name"
+    Value: !Ref DataBucket
+    Export:
+      Name: cc-de-data-bucket
+
+  StateMachineArn:
+    Description: "Step Function ARN"
+    Value: !Ref EtlStateMachine
+    Export:
+      Name: cc-de-state-machine-arn
+
+  LambdaFunctionArn:
+    Description: "Lambda starter function ARN"
+    Value: !GetAtt StartStateMachineFunction.Arn
+
+  GlueDatabaseName:
+    Description: "Glue Catalog database name"
+    Value: !Ref GlueDatabase
+
+  AlertTopicArn:
+    Description: "SNS topic ARN for pipeline failure alerts"
+    Value: !Ref PipelineAlertTopic

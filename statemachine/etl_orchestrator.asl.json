@@ -1,0 +1,86 @@
+{
+  "Comment": "ETL Orchestrator: Transform CSV → Parquet, then write Iceberg table",
+  "StartAt": "TransformJob",
+  "States": {
+    "TransformJob": {
+      "Type": "Task",
+      "Comment": "Glue Job #1: reads CSVs from raw/, applies filters, joins with degrees, writes Parquet to curated/",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "${GlueTransformJobName}",
+        "Arguments": {
+          "--RAW_BUCKET.$":           "$.rawBucket",
+          "--RAW_KEY.$":              "$.rawKey",
+          "--DEGREES_KEY.$":          "$.degreesKey",
+          "--CURATED_PREFIX.$":       "$.curatedPrefix",
+          "--EXECUTION_DATE.$":       "$.executionDate",
+          "--FILTER_GENDER.$":        "$.filterGender",
+          "--FILTER_AGE_MIN.$":       "$.filterAgeMin",
+          "--FILTER_COUNTRY.$":       "$.filterCountry",
+          "--FILTER_EDUCATION_MIN.$": "$.filterEducationMin",
+          "--FILTER_RAW_SCORE_MIN.$": "$.filterRawScoreMin"
+        }
+      },
+      "ResultPath": "$.transformResult",
+      "Next": "IcebergJob",
+      "Retry": [
+        {
+          "ErrorEquals": ["Glue.AWSGlueException", "States.TaskFailed"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 1,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ETLFailed",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "IcebergJob": {
+      "Type": "Task",
+      "Comment": "Glue Job #2: reads Parquet from curated/, creates/updates Iceberg table in Glue Catalog",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "${GlueIcebergJobName}",
+        "Arguments": {
+          "--DATA_BUCKET.$": "$.rawBucket",
+          "--CURATED_PREFIX.$": "$.curatedPrefix",
+          "--ICEBERG_PREFIX.$": "$.icebergPrefix",
+          "--DATABASE_NAME.$": "$.databaseName",
+          "--TABLE_NAME.$": "$.tableName",
+          "--EXECUTION_DATE.$": "$.executionDate"
+        }
+      },
+      "ResultPath": "$.icebergResult",
+      "Next": "ETLSucceeded",
+      "Retry": [
+        {
+          "ErrorEquals": ["Glue.AWSGlueException", "States.TaskFailed"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 1,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ETLFailed",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "ETLSucceeded": {
+      "Type": "Succeed",
+      "Comment": "Pipeline completed successfully"
+    },
+    "ETLFailed": {
+      "Type": "Fail",
+      "Comment": "Pipeline failed — check CloudWatch Logs for the failed Glue Job",
+      "ErrorPath": "$.error.Error",
+      "CausePath": "$.error.Cause"
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "so-etl-challenge",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+
+  // Mount the host Docker socket so SAM can build images using host Docker
+  "mounts": [
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+    // Mount AWS credentials from the host (read/write so they can be configured inside the container)
+    "source=${localEnv:USERPROFILE}\\.aws,target=/root/.aws,type=bind"
+  ],
+
+  // Environment variables inside the container
+  "containerEnv": {
+    "AWS_PROFILE": "sam-deployer",
+    "SAM_CLI_TELEMETRY": "0"
+  },
+
+  // VS Code extensions installed automatically inside the container
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "amazonwebservices.aws-toolkit-vscode",
+        "ms-python.python",
+        "ms-python.black-formatter",
+        "redhat.vscode-yaml",
+        "kddejong.vscode-cfn-lint"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "editor.formatOnSave": true,
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.black-formatter"
+        }
+      }
+    }
+  },
+
+  // Port forwarding (useful when running sam local start-api)
+  "forwardPorts": [3000],
+
+  "postCreateCommand": "pip install --no-cache-dir -r requirements.txt 2>/dev/null || true",
+
+  "remoteUser": "root"
+}
