@@ -1,0 +1,25 @@
+version: '3.8'
+
+# =============================================================================
+#  docker-compose.yml — Data Engineer Code Challenge
+#
+#  Uso:
+#    1. cp .env.example .env    # y completa tus credenciales AWS
+#    2. docker compose up --build
+# =============================================================================
+
+services:
+  etl-runner:
+    build:
+      context: .devcontainer
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    env_file:
+      - .env
+    environment:
+      STACK_NAME:  ${STACK_NAME:-cc-data-engineer-etl}
+      ALERT_EMAIL: ${ALERT_EMAIL:-}
+      SKIP_DEPLOY: ${SKIP_DEPLOY:-0}
+    command: bash entrypoint.sh

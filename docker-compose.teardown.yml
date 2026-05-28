@@ -1,0 +1,30 @@
+version: '3.8'
+
+# =============================================================================
+#  docker-compose.teardown.yml — Elimina todos los recursos AWS del challenge
+#
+#  Uso:
+#    docker compose -f docker-compose.teardown.yml run --rm teardown
+#
+#  Qué hace:
+#    1. Vacía el bucket S3 (CloudFormation no puede borrar un bucket con objetos)
+#    2. Ejecuta `sam delete` para eliminar el stack de CloudFormation completo
+#
+#  Requiere el mismo .env que docker-compose.yml (credenciales AWS).
+# =============================================================================
+
+services:
+  teardown:
+    build:
+      context: .devcontainer
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    stdin_open: true    # necesario para la confirmación interactiva (y/n)
+    tty: true
+    env_file:
+      - .env
+    environment:
+      STACK_NAME: ${STACK_NAME:-cc-data-engineer-etl}
+    command: bash teardown_entrypoint.sh
