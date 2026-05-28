@@ -132,7 +132,7 @@ class DataQualityError(Exception):
 def _dq_assert(condition: bool, message: str) -> None:
     """Fail fast: raise DataQualityError if condition is False."""
     if not condition:
-        logger.error("DATA QUALITY FAILURE: %s", message)
+        logger.error(f"DATA QUALITY FAILURE: {message}")
         raise DataQualityError(message)
 
 
@@ -146,7 +146,7 @@ for col_name in KEY_COLUMNS:
         null_count == 0,
         f"Column '{col_name}' has {null_count} null value(s) after filtering.",
     )
-    logger.info("  [PASS] No nulls in '%s'", col_name)
+    logger.info(f"  [PASS] No nulls in '{col_name}'")
 
 # 2. Gender purity — every row must match the requested gender code
 wrong_gender_count = filtered_df.filter(F.col("gender") != filter_gender).count()
@@ -154,7 +154,7 @@ _dq_assert(
     wrong_gender_count == 0,
     f"Found {wrong_gender_count} row(s) with gender != '{filter_gender}'.",
 )
-logger.info("  [PASS] All rows have gender == '%s'", filter_gender)
+logger.info(f"  [PASS] All rows have gender == '{filter_gender}'")
 
 # 3. Age floor — minimum age must be strictly above the filter threshold
 min_age = filtered_df.agg(F.min("age")).collect()[0][0]
@@ -162,7 +162,7 @@ _dq_assert(
     min_age > filter_age_min,
     f"Minimum age {min_age} is not greater than filter threshold {filter_age_min}.",
 )
-logger.info("  [PASS] min(age)=%s > %s", min_age, filter_age_min)
+logger.info(f"  [PASS] min(age)={min_age} > {filter_age_min}")
 
 # 4. Country purity — every row must match the requested country
 wrong_country_count = filtered_df.filter(F.col("country") != filter_country).count()
@@ -170,7 +170,7 @@ _dq_assert(
     wrong_country_count == 0,
     f"Found {wrong_country_count} row(s) with country != '{filter_country}'.",
 )
-logger.info("  [PASS] All rows have country == '%s'", filter_country)
+logger.info(f"  [PASS] All rows have country == '{filter_country}'")
 
 # 5. Education level floor
 min_education = filtered_df.agg(F.min("education_level")).collect()[0][0]
@@ -178,7 +178,7 @@ _dq_assert(
     float(min_education) > filter_education_min,
     f"Minimum education_level {min_education} is not greater than {filter_education_min}.",
 )
-logger.info("  [PASS] min(education_level)=%s > %s", min_education, filter_education_min)
+logger.info(f"  [PASS] min(education_level)={min_education} > {filter_education_min}")
 
 # 6. Raw score floor
 min_raw_score = filtered_df.agg(F.min("raw_score")).collect()[0][0]
@@ -186,9 +186,9 @@ _dq_assert(
     float(min_raw_score) > filter_raw_score_min,
     f"Minimum raw_score {min_raw_score} is not greater than {filter_raw_score_min}.",
 )
-logger.info("  [PASS] min(raw_score)=%s > %s", min_raw_score, filter_raw_score_min)
+logger.info(f"  [PASS] min(raw_score)={min_raw_score} > {filter_raw_score_min}")
 
-logger.info("=== All data quality checks passed (%d records) ===", count_after_filter)
+logger.info(f"=== All data quality checks passed ({count_after_filter} records) ===")
 
 # ── Transformations ───────────────────────────────────────────────────────────
 # 1. Map gender code to full label using the dynamic map
