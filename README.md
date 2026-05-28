@@ -41,7 +41,7 @@ Python, AWS CLI, and SAM CLI are all provided by the container — nothing else 
 
 ```bash
 # 1. Clone the repo
-git clone <repo-url> && cd so_code_challenge
+git clone https://github.com/sochoag/AWS-Data-Engineer-Code-Challenge && cd AWS-Data-Engineer-Code-Challenge
 
 # 2. Create your credentials file
 cp .env.example .env
