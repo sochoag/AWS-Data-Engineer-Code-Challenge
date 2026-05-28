@@ -18,4 +18,4 @@ confirm_changeset   = true
 region              = "us-east-1"
 profile             = "sam-deployer"
 resolve_s3          = true
-parameter_overrides = "AlertEmail=santiagoochao3@gmail.com"
+parameter_overrides = "AlertEmail=santiagoochoa3@gmail.com"
