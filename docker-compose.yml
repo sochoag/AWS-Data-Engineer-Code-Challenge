@@ -3,8 +3,8 @@ version: '3.8'
 # =============================================================================
 #  docker-compose.yml — Data Engineer Code Challenge
 #
-#  Uso:
-#    1. cp .env.example .env    # y completa tus credenciales AWS
+#  Usage:
+#    1. cp .env.example .env    # fill in your AWS credentials
 #    2. docker compose up --build
 # =============================================================================
 

@@ -34,50 +34,62 @@ CloudWatch Alarm → SNS → Email  (fires on any execution failure)
 
 ---
 
-## Quick Start — one command
+## Quick Start
+
+**The only requirement is [Docker Desktop](https://www.docker.com/products/docker-desktop/) running on your machine.**
+Python, AWS CLI, and SAM CLI are all provided by the container — nothing else to install.
 
 ```bash
-# 1. Set up AWS credentials
-aws configure --profile sam-deployer
-# Enter: Access Key ID, Secret Access Key, region: us-east-1, output: json
+# 1. Clone the repo
+git clone <repo-url> && cd so_code_challenge
 
-# 2. Run everything
-chmod +x run.sh
-./run.sh
+# 2. Create your credentials file
+cp .env.example .env
+# Open .env and fill in AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+
+# 3. Run the full pipeline
+docker compose up --build
 ```
 
-`run.sh` handles the full lifecycle in order:
+That's it. `docker compose up --build` handles everything in order:
 
-1. Prerequisite check (Python, AWS CLI, SAM CLI)
-2. AWS credential verification
-3. Python dependency install
-4. **Unit test suite** — 13 tests, 100 % Lambda coverage (pytest + moto)
-5. `sam build`
-6. `sam deploy` — provisions all AWS infrastructure
-7. Upload CSVs and Glue scripts to S3
-8. Trigger the ETL pipeline via Lambda
-9. Print direct console links + Athena queries to verify results
+1. **Build** the Docker image (Python 3.11 + AWS CLI v2 + SAM CLI)
+2. **Validate** credentials from `.env`
+3. **Install** Python test dependencies
+4. **Run** the unit test suite — 13 tests, 100 % Lambda coverage (pytest + moto)
+5. **`sam build`** — packages the Lambda function
+6. **`sam deploy`** — provisions all AWS infrastructure via CloudFormation
+7. **Upload** CSVs and Glue scripts to S3
+8. **Trigger** the ETL pipeline via Lambda invocation
+9. **Print** direct console links + Athena queries to verify results
 
-### Optional flags
+### Optional .env flags
 
 ```bash
 # Enable failure-alert email (CloudWatch → SNS)
-ALERT_EMAIL=you@example.com ./run.sh
+ALERT_EMAIL=you@example.com
 
-# Skip deploy if the stack is already up-to-date
-SKIP_DEPLOY=1 ./run.sh
+# Run tests only — skip deploy (useful for CI or re-runs)
+SKIP_DEPLOY=1
 ```
+
+### Teardown — remove all AWS resources
+
+```bash
+docker compose -f docker-compose.teardown.yml run --rm teardown
+```
+
+Empties the S3 bucket (objects + versions) then deletes the entire CloudFormation stack.
+Prompts for confirmation before making any changes.
 
 ---
 
 ## Prerequisites
 
-| Tool | Version | Install |
-|---|---|---|
-| Python | 3.9+ | [python.org](https://www.python.org/) |
-| AWS CLI v2 | ≥ 2.x | [aws.amazon.com/cli](https://aws.amazon.com/cli/) |
-| SAM CLI | ≥ 1.x | `pip install aws-sam-cli` |
-| Docker | any | Required by SAM build |
+| Requirement | Notes |
+|---|---|
+| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | The only local dependency |
+| AWS credentials | Access Key ID + Secret Access Key for the `sam-deployer` IAM user |
 
 ### IAM permissions for `sam-deployer`
 
@@ -99,8 +111,8 @@ Plus an inline policy granting `sns:CreateTopic`, `sns:Subscribe`, `sns:GetTopic
 ## Running the tests manually
 
 ```bash
-pip install -r requirements.txt
-python -m pytest tests/ -v --cov=lambda/start_state_machine --cov-report=term-missing
+# Via Docker (no local Python needed)
+SKIP_DEPLOY=1 docker compose up --build
 ```
 
 Expected output:
@@ -238,7 +250,7 @@ State should be **OK**. If `ALERT_EMAIL` was provided at deploy time, confirm th
 ### 7. Teardown — remove all AWS resources
 
 ```bash
-python scripts/teardown.py
+docker compose -f docker-compose.teardown.yml run --rm teardown
 ```
 
 Empties the S3 bucket (objects + versions) then deletes the entire CloudFormation stack.
@@ -250,31 +262,36 @@ Empties the S3 bucket (objects + versions) then deletes the entire CloudFormatio
 ```
 so_code_challenge/
 ├── data/
-│   ├── battery14_df.csv           # Raw psychometric dataset (47,645 rows)
-│   └── degrees.csv                # Education level reference table
+│   ├── battery14_df.csv            # Raw psychometric dataset (47,645 rows)
+│   └── degrees.csv                 # Education level reference table
 ├── glue/
-│   ├── glue_transform.py          # Glue Job #1: filter, join, DQ checks, write Parquet
-│   └── glue_iceberg.py            # Glue Job #2: Iceberg writer
+│   ├── glue_transform.py           # Glue Job #1: filter, join, DQ checks, write Parquet
+│   └── glue_iceberg.py             # Glue Job #2: Iceberg writer
 ├── lambda/
 │   └── start_state_machine/
-│       └── app.py                 # Builds filter params, starts Step Function
+│       └── app.py                  # Builds filter params, starts Step Function
 ├── statemachine/
-│   └── etl_orchestrator.asl.json  # Step Functions ASL definition
+│   └── etl_orchestrator.asl.json   # Step Functions ASL definition
 ├── scripts/
-│   ├── upload_data.py             # Uploads CSVs + Glue scripts to S3
-│   └── teardown.py                # Empties S3 + deletes CloudFormation stack
+│   ├── upload_data.py              # Uploads CSVs + Glue scripts to S3
+│   └── teardown.py                 # Empties S3 + deletes CloudFormation stack
 ├── tests/
-│   ├── conftest.py                # pytest fixtures (moto AWS mocks)
-│   └── test_lambda.py             # 13 unit tests — 100 % Lambda coverage
+│   ├── conftest.py                 # pytest fixtures (moto AWS mocks)
+│   └── test_lambda.py              # 13 unit tests — 100 % Lambda coverage
 ├── docs/
-│   └── architecture.svg           # Architecture diagram
+│   └── architecture.svg            # Architecture diagram
 ├── .devcontainer/
-│   ├── Dockerfile                 # Python 3.11, AWS CLI v2, SAM CLI
-│   └── devcontainer.json          # VS Code Dev Container config
-├── template.yaml                  # SAM / CloudFormation — all AWS resources
-├── samconfig.toml                 # SAM CLI deploy defaults
-├── requirements.txt               # Python dev/test dependencies
-└── run.sh                         # Zero-friction deployment + test script
+│   ├── Dockerfile                  # Python 3.11, AWS CLI v2, SAM CLI
+│   └── devcontainer.json           # VS Code Dev Container config
+├── template.yaml                   # SAM / CloudFormation — all AWS resources
+├── samconfig.toml                  # SAM CLI deploy defaults
+├── requirements.txt                # Python dev/test dependencies
+├── .env.example                    # Credentials template — copy to .env to get started
+├── docker-compose.yml              # Main entry point — builds image and runs pipeline
+├── docker-compose.teardown.yml     # Teardown entry point — removes all AWS resources
+├── entrypoint.sh                   # Validates .env, writes AWS credentials, launches run.sh
+├── teardown_entrypoint.sh          # Validates .env, writes AWS credentials, launches teardown.py
+└── run.sh                          # Full pipeline: tests → build → deploy → trigger
 ```
 
 ---

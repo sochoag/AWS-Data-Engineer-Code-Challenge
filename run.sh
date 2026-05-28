@@ -2,23 +2,22 @@
 # =============================================================================
 #  run.sh — Data Engineer Code Challenge · ETL Pipeline Runner
 #
-#  Diseñado para correr DENTRO del contenedor levantado por docker-compose.
-#  No ejecutes este script directamente en el host — usa:
+#  Designed to run INSIDE the container launched by docker-compose.
+#  Do not execute this script directly on the host — use:
 #
 #      docker compose up --build
 #
-#  Flujo:
-#    1. Verifica prerrequisitos (python3, aws, sam)
-#    2. Valida credenciales AWS
-#    3. Instala dependencias Python
-#    4. Corre tests unitarios (pytest + moto)
-#    5. sam build  (--no-use-container: ya estamos en Python 3.11)
-#    6. sam deploy
-#    7. Sube datos y scripts Glue a S3
-#    8. Invoca la Lambda para iniciar el ETL
-#    9. Imprime URLs y queries Athena para verificar resultados
+#  Pipeline steps:
+#    1. Prerequisites check  (python3, aws, sam)
+#    2. Python dependencies  install
+#    3. Unit tests           (pytest + moto)
+#    4. SAM build            (--no-use-container: already running Python 3.11)
+#    5. SAM deploy           (provisions all AWS infrastructure)
+#    6. Upload data          (CSVs + Glue scripts → S3)
+#    7. Trigger pipeline     (invoke Lambda → start Step Function)
+#    8. Verification         (print console URLs + Athena queries)
 #
-#  Variables de entorno (inyectadas por docker-compose.yml):
+#  Environment variables injected by docker-compose.yml:
 #    AWS_PROFILE, STACK_NAME, REGION, ALERT_EMAIL, SKIP_DEPLOY
 # =============================================================================
 
@@ -33,10 +32,9 @@ ok()   { echo -e "${GREEN}✔  $*${RESET}"; }
 warn() { echo -e "${YELLOW}⚠  $*${RESET}"; }
 die()  { echo -e "${RED}✖  ERROR: $*${RESET}" >&2; exit 1; }
 
-# Mueve al directorio donde vive el script
 cd "$(dirname "$0")"
 
-# ── Configuración (sobreescribible con env vars) ───────────────────────────────
+# ── Configuration ─────────────────────────────────────────────────────────────
 AWS_PROFILE="${AWS_PROFILE:-sam-deployer}"
 STACK_NAME="${STACK_NAME:-cc-data-engineer-etl}"
 REGION="${REGION:-us-east-1}"
@@ -48,64 +46,65 @@ echo -e   "║   Data Engineer Code Challenge — ETL Pipeline Runner     ║"
 echo -e   "╚══════════════════════════════════════════════════════════╝${RESET}"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 1 — Prerrequisitos
+# STEP 1 — Prerequisites
 # ─────────────────────────────────────────────────────────────────────────────
-step "Verificando prerrequisitos"
+step "Checking prerequisites"
 
-command -v python3 >/dev/null 2>&1 || die "python3 no encontrado"
-command -v aws     >/dev/null 2>&1 || die "AWS CLI no encontrado"
-command -v sam     >/dev/null 2>&1 || die "SAM CLI no encontrado"
+command -v python3 >/dev/null 2>&1 || die "python3 not found"
+command -v aws     >/dev/null 2>&1 || die "AWS CLI not found"
+command -v sam     >/dev/null 2>&1 || die "SAM CLI not found"
 
 ok "python3  $(python3 --version | awk '{print $2}')"
 ok "AWS CLI  $(aws --version 2>&1 | awk '{print $1}' | cut -d/ -f2)"
 ok "SAM CLI  $(sam --version | awk '{print $NF}')"
 
-# Verifica que el CSV de datos esté presente
+# Verify the dataset is present
 if [[ ! -f "data/battery14_df.csv" ]]; then
-    die "data/battery14_df.csv no encontrado. ¿Clonaste el repositorio completo?"
+    die "data/battery14_df.csv not found. Did you clone the full repository?"
 fi
-ok "data/battery14_df.csv encontrado"
+ok "data/battery14_df.csv found"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 3 — Dependencias Python
+# STEP 2 — Python dependencies
 # ─────────────────────────────────────────────────────────────────────────────
-step "Instalando dependencias Python"
+step "Installing Python dependencies"
 
-# La imagen base (python:3.11-slim-bullseye) no tiene restricciones de
-# "externally-managed-environment", así que pip funciona directo.
+# The base image (python:3.11-slim-bullseye) has no externally-managed-environment
+# restriction, so pip works without --break-system-packages or a virtualenv.
 pip install -q --no-cache-dir -r requirements.txt
 
-ok "Dependencias instaladas"
+ok "Dependencies installed"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 4 — Tests unitarios
+# STEP 3 — Unit tests
 # ─────────────────────────────────────────────────────────────────────────────
-step "Ejecutando tests unitarios (pytest + moto)"
+step "Running unit tests (pytest + moto)"
 
 python3 -m pytest tests/ -v --tb=short \
     --cov=lambda/start_state_machine \
     --cov-report=term-missing \
-    || die "Tests fallidos. Corrige los errores antes de hacer deploy."
+    || die "Tests failed. Fix failures before deploying."
 
-ok "Todos los tests pasaron"
+ok "All tests passed"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 5 & 6 — SAM build + deploy
+# STEP 4 & 5 — SAM build + deploy
 # ─────────────────────────────────────────────────────────────────────────────
 if [[ "$SKIP_DEPLOY" == "1" ]]; then
-    warn "SKIP_DEPLOY=1 — omitiendo sam build y sam deploy"
+    warn "SKIP_DEPLOY=1 — skipping sam build and sam deploy"
 else
-    step "Construyendo aplicación SAM (sam build)"
+    step "Building SAM application (sam build)"
 
-    # --no-use-container: ya corremos dentro de Python 3.11 (igual que el
-    # runtime de la Lambda), no necesitamos lanzar otro contenedor Docker.
+    # --no-use-container: we are already running inside Python 3.11, which
+    # matches the Lambda runtime declared in template.yaml. No Docker-in-Docker
+    # needed.
     sam build \
         --no-use-container \
         --profile "$AWS_PROFILE"
 
-    ok "SAM build completado"
+    ok "SAM build complete"
 
-    step "Desplegando stack CloudFormation: ${STACK_NAME}"
+    step "Deploying CloudFormation stack: ${STACK_NAME}"
 
     DEPLOY_ARGS=(
         sam deploy
@@ -122,27 +121,27 @@ else
         DEPLOY_ARGS+=(--parameter-overrides "AlertEmail=${ALERT_EMAIL}")
         ok "Alert email: ${ALERT_EMAIL}"
     else
-        warn "ALERT_EMAIL no definido — se usará el email en samconfig.toml"
-        warn "Para cambiarlo: ALERT_EMAIL=tu@email.com docker compose up"
+        warn "ALERT_EMAIL not set — notifications will use the email in samconfig.toml"
+        warn "To override: add ALERT_EMAIL=you@example.com to your .env"
     fi
 
     "${DEPLOY_ARGS[@]}"
-    ok "Stack desplegado exitosamente"
+    ok "Stack deployed successfully"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 7 — Upload de datos y scripts Glue a S3
+# STEP 6 — Upload data and Glue scripts to S3
 # ─────────────────────────────────────────────────────────────────────────────
-step "Subiendo datos y scripts Glue a S3"
+step "Uploading data and Glue scripts to S3"
 
 python3 scripts/upload_data.py
 
-ok "Upload completado"
+ok "Upload complete"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 8 — Trigger del pipeline via Lambda
+# STEP 7 — Trigger the ETL pipeline via Lambda
 # ─────────────────────────────────────────────────────────────────────────────
-step "Invocando Lambda para iniciar el ETL"
+step "Triggering ETL pipeline via Lambda"
 
 LAMBDA_NAME="cc-de-start-state-machine"
 PAYLOAD='{"executionDate":"'"$(date -u +%Y-%m-%d)"'"}'
@@ -160,14 +159,14 @@ RESPONSE=$(aws lambda invoke \
 if [[ "$RESPONSE" == "200" ]]; then
     EXECUTION_ARN=$(python3 -c \
         "import json; d=json.load(open('/tmp/lambda_response.json')); print(d.get('executionArn','N/A'))")
-    ok "Lambda invocada exitosamente"
+    ok "Lambda invoked successfully"
     echo -e "    Execution ARN: ${CYAN}${EXECUTION_ARN}${RESET}"
 else
-    die "Lambda invocation failed (HTTP ${RESPONSE}). Revisa CloudWatch Logs."
+    die "Lambda invocation failed (HTTP ${RESPONSE}). Check CloudWatch Logs."
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 9 — Verificación: URLs y queries Athena
+# STEP 8 — Verification: console URLs + Athena queries
 # ─────────────────────────────────────────────────────────────────────────────
 ACCOUNT_ID=$(aws sts get-caller-identity \
     --profile "$AWS_PROFILE" \
@@ -179,29 +178,28 @@ ATHENA_URL="https://${REGION}.console.aws.amazon.com/athena/home?region=${REGION
 
 echo ""
 echo -e "${BOLD}══════════════════════════════════════════════════════════${RESET}"
-echo -e "${BOLD}  Pipeline en ejecución — cómo verificar los resultados   ${RESET}"
+echo -e "${BOLD}  Pipeline triggered — here is how to verify results      ${RESET}"
 echo -e "${BOLD}══════════════════════════════════════════════════════════${RESET}"
 echo ""
-echo -e "${YELLOW}1. Monitorea la ejecución del Step Function (~3-5 min):${RESET}"
+echo -e "${YELLOW}1. Monitor the Step Function execution (~3-5 min):${RESET}"
 echo -e "   ${SFN_URL}"
 echo ""
-echo -e "${YELLOW}2. Cuando la ejecución esté SUCCEEDED, corre estas queries en Athena:${RESET}"
-echo -e "   Abre: ${ATHENA_URL}"
+echo -e "${YELLOW}2. Once execution is SUCCEEDED, run these Athena queries:${RESET}"
+echo -e "   Open: ${ATHENA_URL}"
 echo ""
-echo -e "   -- Total de registros (esperado: 294)"
+echo -e "   -- Check total record count (expected: 294)"
 echo -e "   ${CYAN}SELECT COUNT(*) AS total FROM cc_data_engineer_db.battery_filtered;${RESET}"
 echo ""
-echo -e "   -- Confirmar tipo de tabla Iceberg"
+echo -e "   -- Confirm Iceberg table type"
 echo -e "   ${CYAN}SHOW TBLPROPERTIES cc_data_engineer_db.battery_filtered;${RESET}"
 echo ""
-echo -e "   -- Spot-check de datos"
+echo -e "   -- Spot-check applied filters"
 echo -e "   ${CYAN}SELECT gender, country, MIN(age) AS min_age, MIN(raw_score) AS min_score"
 echo -e "   FROM cc_data_engineer_db.battery_filtered"
 echo -e "   GROUP BY gender, country;${RESET}"
 echo ""
-echo -e "${YELLOW}3. Bucket S3 para output de Athena (configúralo en Athena Settings):${RESET}"
+echo -e "${YELLOW}3. S3 Athena output bucket (set in Athena Settings if needed):${RESET}"
 echo -e "   s3://cc-data-engineer-${ACCOUNT_ID}-${REGION}/athena/"
 echo ""
-echo -e "${GREEN}${BOLD}  ¡Listo! El pipeline completo está corriendo.${RESET}"
+echo -e "${GREEN}${BOLD}  All done! The full pipeline is running.${RESET}"
 echo ""
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  entrypoint.sh — Valida el .env y configura credenciales AWS antes de correr
+#  entrypoint.sh — Validates .env variables, writes AWS credentials inside the
+#                  container, and launches the pipeline via run.sh.
 # =============================================================================
 
 set -euo pipefail
@@ -14,18 +15,18 @@ REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 AWS_PROFILE="sam-deployer"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Valida que las variables del .env estén presentes
+# Validate required variables from .env
 # ─────────────────────────────────────────────────────────────────────────────
-echo -e "\n${CYAN}${BOLD}▶  Verificando configuración del .env${RESET}"
+echo -e "\n${CYAN}${BOLD}▶  Validating .env configuration${RESET}"
 
-[[ -z "${AWS_ACCESS_KEY_ID:-}"     ]] && die "AWS_ACCESS_KEY_ID no está definido en el .env"
-[[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]] && die "AWS_SECRET_ACCESS_KEY no está definido en el .env"
-[[ -z "${AWS_DEFAULT_REGION:-}"    ]] && die "AWS_DEFAULT_REGION no está definido en el .env"
+[[ -z "${AWS_ACCESS_KEY_ID:-}"     ]] && die "AWS_ACCESS_KEY_ID is not set in .env"
+[[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]] && die "AWS_SECRET_ACCESS_KEY is not set in .env"
+[[ -z "${AWS_DEFAULT_REGION:-}"    ]] && die "AWS_DEFAULT_REGION is not set in .env"
 
-ok "Variables AWS cargadas desde .env"
+ok "AWS variables loaded from .env"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Escribe las credenciales al archivo ~/.aws/credentials dentro del contenedor
+# Write credentials to ~/.aws inside the container
 # ─────────────────────────────────────────────────────────────────────────────
 mkdir -p /root/.aws
 
@@ -41,23 +42,23 @@ region = ${REGION}
 output = json
 EOF
 
-ok "Credenciales escritas para el profile '${AWS_PROFILE}'"
+ok "Credentials written for profile '${AWS_PROFILE}'"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Valida que las credenciales funcionen antes de continuar
+# Validate credentials before proceeding
 # ─────────────────────────────────────────────────────────────────────────────
-echo -e "\n${CYAN}${BOLD}▶  Validando acceso a AWS${RESET}"
+echo -e "\n${CYAN}${BOLD}▶  Validating AWS access${RESET}"
 
 CALLER=$(aws sts get-caller-identity \
     --profile "$AWS_PROFILE" \
     --region  "$REGION" \
     --query   'Arn' \
     --output  text 2>&1) \
-    || die "Credenciales inválidas. Verifica AWS_ACCESS_KEY_ID y AWS_SECRET_ACCESS_KEY en tu .env"
+    || die "Invalid credentials. Check AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in your .env"
 
-ok "Acceso confirmado: ${CALLER}"
+ok "Access confirmed: ${CALLER}"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Lanza el pipeline
+# Launch the pipeline
 # ─────────────────────────────────────────────────────────────────────────────
 exec bash run.sh
