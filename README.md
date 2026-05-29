@@ -94,6 +94,30 @@ CloudWatch Alarm → SNS → Email (fires on any execution failure)
 
 ---
 
+## Prerequisites
+
+| Requirement | Notes |
+|---|---|
+| Docker Desktop | The only local dependency |
+| AWS credentials | Access Key ID + Secret Access Key for the `sam-deployer` IAM user |
+
+### IAM permissions for `sam-deployer`
+
+Attach these managed policies to the deployer user:
+
+- `AWSCloudFormationFullAccess`
+- `AWSLambda_FullAccess`
+- `AmazonS3FullAccess`
+- `AWSGlue_FullAccess`
+- `AWSStepFunctionsFullAccess`
+- `IAMFullAccess`
+- `AmazonEventBridgeFullAccess`
+- `CloudWatchFullAccess`
+
+Plus an inline policy granting `sns:CreateTopic`, `sns:Subscribe`, `sns:GetTopicAttributes`, `sns:SetTopicAttributes`, `sns:DeleteTopic`, `sns:ListTagsForResource`, `sns:TagResource`, `sns:Unsubscribe` on `arn:aws:sns:us-east-1:<ACCOUNT_ID>:cc-de-pipeline-alerts`.
+
+---
+
 ## Quick Start
 
 The only requirement is Docker Desktop running on your machine. Python, AWS CLI, and SAM CLI are all provided by the container — nothing else to install.
@@ -137,30 +161,6 @@ docker compose -f docker-compose.teardown.yml run --rm teardown
 ```
 
 Empties the S3 bucket (objects + versions) then deletes the entire CloudFormation stack. Prompts for confirmation before making any changes.
-
----
-
-## Prerequisites
-
-| Requirement | Notes |
-|---|---|
-| Docker Desktop | The only local dependency |
-| AWS credentials | Access Key ID + Secret Access Key for the `sam-deployer` IAM user |
-
-### IAM permissions for `sam-deployer`
-
-Attach these managed policies to the deployer user:
-
-- `AWSCloudFormationFullAccess`
-- `AWSLambda_FullAccess`
-- `AmazonS3FullAccess`
-- `AWSGlue_FullAccess`
-- `AWSStepFunctionsFullAccess`
-- `IAMFullAccess`
-- `AmazonEventBridgeFullAccess`
-- `CloudWatchFullAccess`
-
-Plus an inline policy granting `sns:CreateTopic`, `sns:Subscribe`, `sns:GetTopicAttributes`, `sns:SetTopicAttributes`, `sns:DeleteTopic`, `sns:ListTagsForResource`, `sns:TagResource`, `sns:Unsubscribe` on `arn:aws:sns:us-east-1:<ACCOUNT_ID>:cc-de-pipeline-alerts`.
 
 ---
 
