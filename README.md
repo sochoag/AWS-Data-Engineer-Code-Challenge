@@ -59,6 +59,8 @@ CloudWatch Alarm → SNS → Email (fires on any execution failure)
 
 **Data quality checks as a gate** — six invariants are validated after filtering (null checks on all key columns, gender purity, age/education/score floor enforcement). Any violation raises `DataQualityError` and aborts the job before bad data can reach the curated zone or the Iceberg table.
 
+The six invariants enforced are: no nulls on `gender`, `age`, `country`, `education_level`, and `raw_score`; and no null `degree_description` after the join with the reference table. Each check is logged individually so Glue output logs show exactly which invariant failed and on how many rows.
+
 `education_level > 6` **for "higher than Master's degree"** — the dataset encodes degrees as integers (Bachelor's = 4, Master's = 6, Doctorate = 8). The requirement "higher than Master's" is `education_level > 6`, selecting Doctorate-level respondents. This is an explicit, documented interpretation.
 
 **Apache Iceberg via `--datalake-formats iceberg`** — the Glue 4.0 built-in Iceberg extension is used instead of a custom JAR. Catalog configuration is applied via `spark.conf.set()` at runtime, avoiding the multi-line `--conf` argument that CloudFormation cannot serialize as a string value.
@@ -68,6 +70,8 @@ CloudWatch Alarm → SNS → Email (fires on any execution failure)
 **CloudWatch Alarm with OK action** — the alarm notifies on both ALARM and OK state transitions, so the on-call engineer receives a recovery notification automatically without checking the console.
 
 **Single S3 bucket with logical prefixes** — `raw/`, `curated/`, `iceberg/`, `scripts/`, `athena/`, `tmp/`. Simplifies IAM, reduces cost, and keeps all pipeline data co-located.
+
+**Failure and recovery behaviour** — if the Transform job fails, Step Functions marks the execution as FAILED and stops before the Iceberg Writer runs, so the curated Parquet and the Iceberg table are never overwritten with partial data. Each execution writes to a date-partitioned path (`curated/year=.../month=.../day=.../`), so re-running with the same `executionDate` is idempotent: it overwrites only that day's partition, leaving all other dates intact. CloudWatch triggers the SNS alert on any FAILED execution, giving the on-call engineer the execution ARN needed to diagnose and reprocess.
 
 ---
 
