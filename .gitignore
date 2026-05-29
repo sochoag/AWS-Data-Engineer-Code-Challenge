@@ -34,3 +34,6 @@ Thumbs.db
 
 # Zip de entrega
 *.zip
+
+# Lambda local invocation output
+output.json
